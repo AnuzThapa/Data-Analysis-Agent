@@ -4,7 +4,7 @@ Tools for the agent to use.
 from langchain_core.tools import tool
 from sqlalchemy import create_engine, text, Engine
 import pandas as pd
-from scout import env
+from dbagent import env
 from langgraph.types import Command
 from langchain_core.tools.base import InjectedToolCallId
 from typing import Annotated
@@ -34,8 +34,8 @@ class ServerSession:
                 pool_pre_ping=True,         # Keep this to verify connections
                 pool_use_lifo=True,         # Keep LIFO to reduce number of open connections
                 connect_args={
-                    "application_name": "onlyvans_agent",
-                    "options": "-c statement_timeout=30000",
+                    "application_name": "db-query-agent",
+                    "options": "-c statement_timeout=30000 -c search_path=db-agent,public",
                     # Keepalives less important with transaction pooler but still good practice
                     "keepalives": 1,
                     "keepalives_idle": 60,
@@ -51,6 +51,37 @@ class ServerSession:
 session = ServerSession()
 
 
+# @tool
+# def query_db(query: str) -> str:
+#     """Query the database using Postgres SQL.
+
+#     Args:
+#         query: The SQL query to execute. Must be a valid postgres SQL string that can be executed directly.
+
+#     Returns:
+#         str: The query result as a markdown table.
+#     """
+#     try:
+#         # Use the global engine in the server session to connect to Supabase
+#         with session.engine.connect().execution_options(
+#             isolation_level="READ COMMITTED"
+#         ) as conn:
+#             result = conn.execute(text(query))
+
+#             columns = list(result.keys())
+#             rows = result.fetchall()
+#             df = pd.DataFrame(rows, columns=columns)
+
+#             # Store the DataFrame in the server session
+#             session.df = df
+
+#             conn.close()  # Explicitly close the connection
+#         return df.to_markdown(index=False)
+#     except Exception as e:
+#         return f"Error executing query: {str(e)}"
+
+
+# based on the doc string in the query_db tool the agent will pass the query parameter to the tool.
 @tool
 def query_db(query: str) -> str:
     """Query the database using Postgres SQL.
@@ -61,25 +92,23 @@ def query_db(query: str) -> str:
     Returns:
         str: The query result as a markdown table.
     """
+    
     try:
-        # Use the global engine in the server session to connect to Supabase
+        print("Running query:", query)  # Add this line
         with session.engine.connect().execution_options(
             isolation_level="READ COMMITTED"
         ) as conn:
+            conn.execute(text('SET search_path TO "db-agent", public')) 
             result = conn.execute(text(query))
-
             columns = list(result.keys())
             rows = result.fetchall()
             df = pd.DataFrame(rows, columns=columns)
-
-            # Store the DataFrame in the server session
             session.df = df
-
-            conn.close()  # Explicitly close the connection
+            conn.close()
         return df.to_markdown(index=False)
     except Exception as e:
+        print("Query failed:", str(e))  # Add this line
         return f"Error executing query: {str(e)}"
-
 
 @tool
 def generate_visualization(
@@ -128,20 +157,19 @@ def generate_visualization(
 
     # Add SQL query to the code
 
-    pre_code = f'''
-from sqlalchemy import text
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import plotly.io as pio
-import plotly
-
-# Generated SQL
-df = pd.read_sql(text("""{sql_query}"""), engine)
-
-# Generated plotly code
-'''
     post_code = f'''
+
+# Auto-call any function returning a Plotly figure
+if 'fig' not in locals() and 'fig' not in globals():
+    for name, obj in list(locals().items()) + list(globals().items()):
+        if callable(obj):
+            try:
+                result = obj()
+                if hasattr(result, 'to_plotly_json'):
+                    fig = result
+                    break
+            except:
+                continue
 
 # Save the figure to JSON
 if 'fig' in locals() or 'fig' in globals():

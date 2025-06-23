@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "langchain-core>=0.3.55",
+    "langchain-groq>=0.3.2",
+    "langchain-ollama>=0.3.2",
     "langchain-openai>=0.3.14",
     "langgraph>=0.2.76",
     "pandas>=2.2.3",
@@ -18,7 +20,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["scout"]
+packages = ["dbagent"]
 
 [dependency-groups]
 dev = [

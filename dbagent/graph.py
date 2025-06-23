@@ -1,18 +1,56 @@
 from pydantic import BaseModel
 from typing import Annotated, List, Generator
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessageChunk
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
-from scout.tools import query_db, generate_visualization
-from scout.prompts import prompts
+from dbagent.tools import query_db, generate_visualization
+from dbagent.prompts import prompts
 
 
-class  ScoutState(BaseModel):
+class  LangState(BaseModel):
     messages: Annotated[List[BaseMessage], add_messages] = []
     chart_json: str = ""
+
+# state=ScoutState(messages=[HumanMessage(content="hello"),AIMessage(content="hi")])
+
+# pritn(state.model_dump_json(indent=2))
+
+
+# llm=ChatOllama(
+#     model="llama3.2:3b",
+#     temperatur=0.1,
+# )
+
+
+# def assistant_node(state:ScoutState) -> ScoutState:
+#     response=llm.invoke("hi sham")
+#     state.messages.append(response)
+#     return state
+
+# graph_builder=StateGraph(ScountState)
+# graph_builder.add_node(assistant_node)
+# grpah_builder.add_edge(START,"assistant_node")
+# graph_builder.add_edge("assistant_node",END)
+
+# graph=graph_builder.compile(checkpointer=MemorySaver())
+
+# from IPython.display import display,Image
+# display(Image(graph.get_graph(xray=True).draw_mermaid_png()))
+
+
+# config={
+#     "configurable":{
+#         "thread_id":"1",
+#     }}
+
+# result=graph.invoke(input=state,
+# config=config)
+
+
+
 
 
 class Agent:
@@ -30,7 +68,8 @@ class Agent:
             self, 
             name: str, 
             tools: List = [query_db, generate_visualization],
-            model: str = "gpt-4.1-mini-2025-04-14", 
+            # model: str = "gpt-4.1-mini-2025-04-14", 
+            model:str ="llama3.2:latest",
             system_prompt: str = "You are a helpful assistant.",
             temperature: float = 0.1
             ):
@@ -40,9 +79,9 @@ class Agent:
         self.system_prompt = system_prompt
         self.temperature = temperature
         
-        self.llm = ChatOpenAI(
+        self.llm = ChatOllama(
             model=self.model,
-            temperature=self.temperature
+            temperature=self.temperature,
             ).bind_tools(self.tools)
         
         self.runnable = self.build_graph()
@@ -52,7 +91,7 @@ class Agent:
         """
         Build the LangGraph application.
         """
-        def scout_node(state: ScoutState) -> ScoutState:
+        def lang_node(state: LangState) -> LangState:
             response = self.llm.invoke(
                 [SystemMessage(content=self.system_prompt)] +
                 state.messages
@@ -60,16 +99,16 @@ class Agent:
             state.messages = state.messages + [response]
             return state
         
-        def router(state: ScoutState) -> str:
+        def router(state: LangState) -> str:
             last_message = state.messages[-1]
             if not last_message.tool_calls:
                 return END
             else:
                 return "tools"
 
-        builder = StateGraph(ScoutState)
+        builder = StateGraph(LangState)
 
-        builder.add_node("chatbot", scout_node)
+        builder.add_node("chatbot", lang_node)
         builder.add_node("tools", ToolNode(self.tools))
 
         builder.add_edge(START, "chatbot")
@@ -150,7 +189,7 @@ class Agent:
 
 # Define and instantiate the agent 
 agent = Agent(
-        name="Scout",
-        system_prompt=prompts.scout_system_prompt
+        name="Lang",
+        system_prompt=prompts.lang_system_prompt
         )
 graph = agent.build_graph()
